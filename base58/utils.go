@@ -1,0 +1,11 @@
+package base58
+
+// Ignore l I O 0 which are confusing in English text
+var base58Alphabet = []byte("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
+
+// ReverseBytes reverses a byte array
+func ReverseBytes(data []byte) {
+	for i, j := 0, len(data)-1; i < j; i, j = i+1, j-1 {
+		data[i], data[j] = data[j], data[i]
+	}
+}

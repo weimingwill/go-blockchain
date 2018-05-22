@@ -9,6 +9,12 @@
 
 [[projects]]
   branch = "master"
+  name = "golang.org/x/crypto"
+  packages = ["ripemd160"]
+  revision = "1a580b3eff7814fc9b40602fd35256c63b50f491"
+
+[[projects]]
+  branch = "master"
   name = "golang.org/x/sys"
   packages = ["unix"]
   revision = "7c87d13f8e835d2fb3a70a2912c811ed0c1d241b"
@@ -16,6 +22,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "578b2009f7d5787e10de1bb2f00b0487747d0bdde836b03e17a436524961c375"
+  inputs-digest = "debafa3f1a48b72f568cc50b90dae401a142c6e7433dd642624bd18e0cc132e5"
   solver-name = "gps-cdcl"
   solver-version = 1
