@@ -139,7 +139,7 @@ func (tx *Transaction) Verify(prevTxs map[string]Transaction) bool {
 
 	for inID, in := range tx.Vin {
 		prevTx := prevTxs[hex.EncodeToString(in.TxID)]
-		// txCopy.Vin[inID].Signature = nil // just to ensure
+		txCopy.Vin[inID].Signature = nil // just to ensure
 		txCopy.Vin[inID].PubKey = prevTx.Vout[in.Vout].PubKeyHash
 		txCopy.ID = txCopy.Hash()
 		txCopy.Vin[inID].PubKey = nil
@@ -156,7 +156,11 @@ func (tx *Transaction) Verify(prevTxs map[string]Transaction) bool {
 		x.SetBytes(in.PubKey[:(keyLen / 2)])
 		y.SetBytes(in.PubKey[(keyLen / 2):])
 
-		rawPubKey := ecdsa.PublicKey{curve, &x, &y}
+		rawPubKey := ecdsa.PublicKey{
+			Curve: curve,
+			X:     &x,
+			Y:     &y,
+		}
 		if !ecdsa.Verify(&rawPubKey, txCopy.ID, &r, &s) {
 			return false
 		}
