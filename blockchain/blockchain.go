@@ -28,14 +28,15 @@ type Blockchain struct {
 }
 
 // MineBlock mines a block with transactions
-func (bc *Blockchain) MineBlock(transactions []*Transaction) {
+func (bc *Blockchain) MineBlock(transactions []*Transaction) *Block {
+	var lastHash []byte
+
 	for _, tx := range transactions {
 		if !bc.VerifyTransaction(tx) {
 			log.Panic("ERROR: Invalid transaction")
 		}
 	}
 
-	var lastHash []byte
 	err := bc.DB.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(blocksBucket))
 		lastHash = b.Get(lastHashKey)
@@ -43,16 +44,34 @@ func (bc *Blockchain) MineBlock(transactions []*Transaction) {
 		return nil
 	})
 
+	if err != nil {
+		log.Panic(err)
+	}
+
 	block := NewBlock(transactions, lastHash)
 
 	err = bc.DB.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(blocksBucket))
 		err = b.Put(lastHashKey, block.Hash)
+		if err != nil {
+			log.Panic(err)
+		}
+
 		err = b.Put(block.Hash, block.Serialize())
+		if err != nil {
+			log.Panic(err)
+		}
+
 		bc.tip = block.Hash
 
 		return err
 	})
+
+	if err != nil {
+		log.Panic(err)
+	}
+
+	return block
 }
 
 // Iterator initializes a new blockchain iterator
@@ -91,6 +110,12 @@ func (bc *Blockchain) SignTransaction(tx *Transaction, privateKey ecdsa.PrivateK
 
 // VerifyTransaction verifies whether transaction is valid
 func (bc *Blockchain) VerifyTransaction(tx *Transaction) bool {
+	// After adding reward for mining, we are creating new coinbase transaction everytime.
+	// No need to verify coinbase transaction.
+	if tx.IsCoinbase() {
+		return true
+	}
+
 	prevTxs := bc.getPreviousTransactions(tx)
 
 	return tx.Verify(prevTxs)
@@ -144,43 +169,46 @@ func (bc *Blockchain) FindUnspentTransactions(pubKeyHash []byte) []Transaction {
 }
 
 // FindUTXO returns unspent transaction outputs
-func (bc *Blockchain) FindUTXO(pubKeyHash []byte) []TXOutput {
-	var utxos []TXOutput
-	utx := bc.FindUnspentTransactions(pubKeyHash)
-	for _, tx := range utx {
-		for _, out := range tx.Vout {
-			if out.IsLockedWithKey(pubKeyHash) {
-				utxos = append(utxos, out)
+func (bc *Blockchain) FindUTXO() map[string]TXOutputs {
+	utxos := make(map[string]TXOutputs)
+	var spendTXOs = make(map[string][]int)
+
+	bci := bc.Iterator()
+	for {
+		block := bci.Next()
+
+		for _, tx := range block.Transactions {
+			txID := hex.EncodeToString(tx.ID)
+
+		Outputs:
+			for txOutID, out := range tx.Vout {
+				if spendTXOs[txID] != nil {
+					for _, spendOutID := range spendTXOs[txID] {
+						if spendOutID == txOutID {
+							continue Outputs
+						}
+					}
+				}
+
+				outs := utxos[txID]
+				outs.Outputs = append(outs.Outputs, out)
+				utxos[txID] = outs
 			}
+
+			if !tx.IsCoinbase() {
+				for _, in := range tx.Vin {
+					inTXID := hex.EncodeToString(in.TxID)
+					spendTXOs[inTXID] = append(spendTXOs[inTXID], in.Vout)
+				}
+			}
+
+		}
+
+		if len(block.PrevBlockHash) == 0 {
+			break
 		}
 	}
 	return utxos
-}
-
-// FindSpendableOutputs finds spendable outputs of an address.
-// The amount it returns either less than input amount or just exceed it.
-// It also retunrs the transaction ids that accumulate to that amount.
-func (bc *Blockchain) FindSpendableOutputs(pubKeyHash []byte, amount int) (int, map[string][]int) {
-	var unspentOutputs = make(map[string][]int)
-	unspentTXs := bc.FindUnspentTransactions(pubKeyHash)
-	accumulated := 0
-
-Work:
-	for _, tx := range unspentTXs {
-		txID := hex.EncodeToString(tx.ID)
-
-		for outID, out := range tx.Vout {
-			if out.IsLockedWithKey(pubKeyHash) && accumulated < amount {
-				accumulated += out.Value
-				unspentOutputs[txID] = append(unspentOutputs[txID], outID)
-
-				if accumulated > amount {
-					break Work
-				}
-			}
-		}
-	}
-	return accumulated, unspentOutputs
 }
 
 func dbExists() bool {
@@ -192,8 +220,7 @@ func dbExists() bool {
 }
 
 // NewBlockchain creates and returns a blockchain
-// Todo: why need address as input ??
-func NewBlockchain(address string) *Blockchain {
+func NewBlockchain() *Blockchain {
 	if dbExists() == false {
 		fmt.Println("No existing blockchain found. Create one first.")
 		os.Exit(1)
