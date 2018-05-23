@@ -65,21 +65,6 @@ func (tx Transaction) String() string {
 	return strings.Join(lines, "\n")
 }
 
-// SetID sets id of the transction by encoding all its data
-func (tx *Transaction) SetID() {
-	var encoded bytes.Buffer
-	var hash [32]byte
-
-	encoder := gob.NewEncoder(&encoded)
-	err := encoder.Encode(tx)
-	if err != nil {
-		log.Panic(err)
-	}
-
-	hash = sha256.Sum256(encoded.Bytes())
-	tx.ID = hash[:]
-}
-
 // Hash returns the hash of the Transaction
 func (tx *Transaction) Hash() []byte {
 	var hash [32]byte
@@ -195,7 +180,13 @@ func (tx *Transaction) TrimmedCopy() Transaction {
 // It gives incentivce for mining the this genesis transaction
 func NewCoinbaseTX(to, data string) *Transaction {
 	if data == "" {
-		data = fmt.Sprintf("Rewad to %s", to)
+		randData := make([]byte, 20)
+		_, err := rand.Read(randData)
+		if err != nil {
+			log.Panic(err)
+		}
+
+		data = fmt.Sprintf("%x", randData)
 	}
 
 	txin := TXInput{
@@ -212,7 +203,7 @@ func NewCoinbaseTX(to, data string) *Transaction {
 }
 
 // NewUTXOTransaction initializes a new unspent transction
-func NewUTXOTransaction(from, to string, amount int, bc *Blockchain) *Transaction {
+func NewUTXOTransaction(from, to string, amount int, utxoSet *UTXOSet) *Transaction {
 	var inputs []TXInput
 	var outputs []TXOutput
 
@@ -224,7 +215,7 @@ func NewUTXOTransaction(from, to string, amount int, bc *Blockchain) *Transactio
 
 	pubKeyHash := HashPubKey(wallet.PublicKey)
 
-	accumulated, unspentOutputs := bc.FindSpendableOutputs(pubKeyHash, amount)
+	accumulated, unspentOutputs := utxoSet.FindSpendableOutputs(pubKeyHash, amount)
 	if accumulated < amount {
 		log.Panic("ERROR: Not enough funds")
 	}
@@ -253,7 +244,7 @@ func NewUTXOTransaction(from, to string, amount int, bc *Blockchain) *Transactio
 
 	tx := Transaction{nil, inputs, outputs}
 	tx.ID = tx.Hash()
-	bc.SignTransaction(&tx, wallet.PrivateKey)
+	utxoSet.Blockchain.SignTransaction(&tx, wallet.PrivateKey)
 
 	return &tx
 }

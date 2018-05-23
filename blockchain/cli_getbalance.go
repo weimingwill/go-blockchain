@@ -10,13 +10,14 @@ func (cli *CLI) getBalance(address string) {
 		log.Panic("Invalid wallet address")
 	}
 
-	bc := NewBlockchain(address)
+	bc := NewBlockchain()
+	utxoSet := UTXOSet{bc}
 	defer bc.DB.Close()
 
 	balance := 0
 	pubKeyHash := GetPubKeyHash([]byte(address))
 
-	utxos := bc.FindUTXO(pubKeyHash)
+	utxos := utxoSet.FindUTXO(pubKeyHash)
 	for _, utxo := range utxos {
 		balance += utxo.Value
 	}
