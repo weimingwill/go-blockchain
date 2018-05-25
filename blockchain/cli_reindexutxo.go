@@ -2,9 +2,9 @@ package blockchain
 
 import "fmt"
 
-func (cli *CLI) reindexUTXO() {
+func (cli *CLI) reindexUTXO(nodeID string) {
 
-	bc := NewBlockchain()
+	bc := NewBlockchain(nodeID)
 	utxoSet := UTXOSet{bc}
 	defer bc.DB.Close()
 

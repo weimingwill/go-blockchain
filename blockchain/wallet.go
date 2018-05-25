@@ -14,8 +14,7 @@ import (
 )
 
 const (
-	version            = byte(0x00)
-	walletFile         = "wallet.dat"
+	verzion            = byte(0x00)
 	addressChecksumLen = 4
 )
 
@@ -35,7 +34,7 @@ func NewWallet() *Wallet {
 // GetAddress returns wallet address
 func (w Wallet) GetAddress() []byte {
 	pubKeyHash := HashPubKey(w.PublicKey)
-	versionPaylod := append([]byte{version}, pubKeyHash...)
+	versionPaylod := append([]byte{verzion}, pubKeyHash...)
 	checksum := checksum(versionPaylod)
 
 	fullPayload := append(versionPaylod, checksum...)

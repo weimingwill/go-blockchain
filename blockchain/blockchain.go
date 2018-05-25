@@ -13,12 +13,15 @@ import (
 )
 
 const (
-	dbFile              = "blockchain.db"
 	blocksBucket        = "blocks"
 	genesisCoinbaseData = "The Times 03/Jan/2009 Chancellor on brink of second bailout for banks"
+	dbFile              = "blockchain_%s.db"
 )
 
-var lastHashKey = []byte("l")
+var (
+	lastHashKey      = []byte("l")
+	blocksBucketName = []byte(blocksBucket)
+)
 
 // Blockchain keeps sequence of blocks
 type Blockchain struct {
@@ -30,6 +33,7 @@ type Blockchain struct {
 // MineBlock mines a block with transactions
 func (bc *Blockchain) MineBlock(transactions []*Transaction) *Block {
 	var lastHash []byte
+	var lastHeight int
 
 	for _, tx := range transactions {
 		if !bc.VerifyTransaction(tx) {
@@ -41,6 +45,11 @@ func (bc *Blockchain) MineBlock(transactions []*Transaction) *Block {
 		b := tx.Bucket([]byte(blocksBucket))
 		lastHash = b.Get(lastHashKey)
 
+		blockData := b.Get(lastHash)
+		block := DeserializeBlock(blockData)
+
+		lastHeight = block.Height
+
 		return nil
 	})
 
@@ -48,21 +57,21 @@ func (bc *Blockchain) MineBlock(transactions []*Transaction) *Block {
 		log.Panic(err)
 	}
 
-	block := NewBlock(transactions, lastHash)
+	newBlock := NewBlock(transactions, lastHash, lastHeight+1)
 
 	err = bc.DB.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(blocksBucket))
-		err = b.Put(lastHashKey, block.Hash)
+		err = b.Put(lastHashKey, newBlock.Hash)
 		if err != nil {
 			log.Panic(err)
 		}
 
-		err = b.Put(block.Hash, block.Serialize())
+		err = b.Put(newBlock.Hash, newBlock.Serialize())
 		if err != nil {
 			log.Panic(err)
 		}
 
-		bc.tip = block.Hash
+		bc.tip = newBlock.Hash
 
 		return err
 	})
@@ -71,7 +80,7 @@ func (bc *Blockchain) MineBlock(transactions []*Transaction) *Block {
 		log.Panic(err)
 	}
 
-	return block
+	return newBlock
 }
 
 // Iterator initializes a new blockchain iterator
@@ -211,7 +220,105 @@ func (bc *Blockchain) FindUTXO() map[string]TXOutputs {
 	return utxos
 }
 
-func dbExists() bool {
+// GetBestHeight returns the height of blockchain
+func (bc *Blockchain) GetBestHeight() int {
+	var lastBlock Block
+
+	err := bc.DB.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(blocksBucketName)
+
+		lastHash := b.Get(lastHashKey)
+		blockData := b.Get(lastHash)
+		lastBlock = *DeserializeBlock(blockData)
+
+		return nil
+	})
+
+	if err != nil {
+		log.Panic(err)
+	}
+
+	return lastBlock.Height
+}
+
+// GetBlockHashes returns block hashes
+func (bc *Blockchain) GetBlockHashes() [][]byte {
+	var blocks [][]byte
+	bci := bc.Iterator()
+
+	for {
+		block := bci.Next()
+		blocks = append(blocks, block.Hash)
+
+		if len(block.PrevBlockHash) == 0 {
+			break
+		}
+
+	}
+	return blocks
+}
+
+// GetBlock finds a block by its hash and returns it
+func (bc *Blockchain) GetBlock(blockHash []byte) (Block, error) {
+	var block Block
+
+	// Get block from db
+	err := bc.DB.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(blocksBucketName)
+
+		blockData := b.Get(blockHash)
+
+		if blockData == nil {
+			return errors.New("Block is not found")
+		}
+
+		block = *DeserializeBlock(blockData)
+
+		return nil
+	})
+	if err != nil {
+		return block, err
+	}
+
+	return block, nil
+}
+
+// AddBlock saves the block into the blockchain
+func (bc *Blockchain) AddBlock(block *Block) {
+	err := bc.DB.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(blocksBucketName)
+		blockInDb := b.Get(block.Hash)
+
+		if blockInDb != nil {
+			return nil
+		}
+
+		blockData := block.Serialize()
+		err := b.Put(block.Hash, blockData)
+		if err != nil {
+			log.Panic(err)
+		}
+
+		lastHash := b.Get(lastHashKey)
+		lastBlockData := b.Get(lastHash)
+		lastBlock := DeserializeBlock(lastBlockData)
+
+		if block.Height > lastBlock.Height {
+			err = b.Put(lastHashKey, block.Hash)
+			if err != nil {
+				log.Panic(err)
+			}
+			bc.tip = block.Hash
+		}
+
+		return nil
+	})
+	if err != nil {
+		log.Panic(err)
+	}
+}
+
+func dbExists(dbFile string) bool {
 	if _, err := os.Stat(dbFile); os.IsNotExist(err) {
 		return false
 	}
@@ -220,8 +327,10 @@ func dbExists() bool {
 }
 
 // NewBlockchain creates and returns a blockchain
-func NewBlockchain() *Blockchain {
-	if dbExists() == false {
+func NewBlockchain(nodeID string) *Blockchain {
+	// Use unique db for different ndoes
+	dbFile := fmt.Sprintf(dbFile, nodeID)
+	if dbExists(dbFile) == false {
 		fmt.Println("No existing blockchain found. Create one first.")
 		os.Exit(1)
 	}
@@ -247,8 +356,9 @@ func NewBlockchain() *Blockchain {
 }
 
 // CreateBlockchain creates and returns a blockchain
-func CreateBlockchain(address string) *Blockchain {
-	if dbExists() == false {
+func CreateBlockchain(address, nodeID string) *Blockchain {
+	dbFile := fmt.Sprintf(dbFile, nodeID)
+	if dbExists(dbFile) == false {
 		fmt.Println("No existing blockchain found. Create one first.")
 		os.Exit(1)
 	}

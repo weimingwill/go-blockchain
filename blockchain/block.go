@@ -13,6 +13,7 @@ type Block struct {
 	Timestamp     int64
 	Nonce         int
 	Transactions  []*Transaction
+	Height        int
 }
 
 // Serialize serializes block data to bytes
@@ -48,17 +49,18 @@ func DeserializeBlock(b []byte) *Block {
 }
 
 // NewBlock creates and returns Block
-func NewBlock(transactions []*Transaction, prevBlockHash []byte) *Block {
+func NewBlock(transactions []*Transaction, prevBlockHash []byte, height int) *Block {
 	block := &Block{
 		Transactions:  transactions,
 		Timestamp:     time.Now().Unix(),
 		PrevBlockHash: prevBlockHash,
+		Height:        height,
 	}
 
 	pow := NewProofOfWork(block)
 	nonce, hash := pow.Run()
 
-	block.Hash = hash
+	block.Hash = hash[:]
 	block.Nonce = nonce
 
 	return block
@@ -66,5 +68,5 @@ func NewBlock(transactions []*Transaction, prevBlockHash []byte) *Block {
 
 // NewGenesisBlock creates and returns the genesis block
 func NewGenesisBlock(coninbase *Transaction) *Block {
-	return NewBlock([]*Transaction{coninbase}, []byte{})
+	return NewBlock([]*Transaction{coninbase}, []byte{}, 0)
 }
