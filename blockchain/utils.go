@@ -3,6 +3,7 @@ package blockchain
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/gob"
 	"log"
 )
 
@@ -15,4 +16,23 @@ func IntToHex(num int64) []byte {
 	}
 
 	return buff.Bytes()
+}
+
+// GobEncode encodes input data
+func GobEncode(data interface{}) []byte {
+	var buff bytes.Buffer
+
+	enc := gob.NewEncoder(&buff)
+	err := enc.Encode(data)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	return buff.Bytes()
+}
+
+func logPanicErr(err error) {
+	if err != nil {
+		log.Panic(err)
+	}
 }

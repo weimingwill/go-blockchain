@@ -94,16 +94,18 @@ func (tx *Transaction) Sign(privateKey ecdsa.PrivateKey, prevTxs map[string]Tran
 		prevTx := prevTxs[hex.EncodeToString(in.TxID)]
 		txCopy.Vin[inID].Signature = nil // just to ensure
 		txCopy.Vin[inID].PubKey = prevTx.Vout[in.Vout].PubKeyHash
-		txCopy.ID = txCopy.Hash()
-		txCopy.Vin[inID].PubKey = nil
 
-		r, s, err := ecdsa.Sign(rand.Reader, &privateKey, txCopy.ID)
+		dataToSign := fmt.Sprintf("%x\n", txCopy)
+		r, s, err := ecdsa.Sign(rand.Reader, &privateKey, []byte(dataToSign))
+
 		if err != nil {
 			log.Panic(err)
 		}
 		signature := append(r.Bytes(), s.Bytes()...)
 
 		tx.Vin[inID].Signature = signature
+		txCopy.Vin[inID].PubKey = nil
+
 	}
 }
 
@@ -126,6 +128,9 @@ func (tx *Transaction) Verify(prevTxs map[string]Transaction) bool {
 		prevTx := prevTxs[hex.EncodeToString(in.TxID)]
 		txCopy.Vin[inID].Signature = nil // just to ensure
 		txCopy.Vin[inID].PubKey = prevTx.Vout[in.Vout].PubKeyHash
+
+		dataToVerify := fmt.Sprintf("%x\n", txCopy)
+
 		txCopy.ID = txCopy.Hash()
 		txCopy.Vin[inID].PubKey = nil
 
@@ -146,9 +151,12 @@ func (tx *Transaction) Verify(prevTxs map[string]Transaction) bool {
 			X:     &x,
 			Y:     &y,
 		}
-		if !ecdsa.Verify(&rawPubKey, txCopy.ID, &r, &s) {
+
+		if !ecdsa.Verify(&rawPubKey, []byte(dataToVerify), &r, &s) {
 			return false
 		}
+		txCopy.Vin[inID].PubKey = nil
+
 	}
 
 	return true
@@ -203,15 +211,9 @@ func NewCoinbaseTX(to, data string) *Transaction {
 }
 
 // NewUTXOTransaction initializes a new unspent transction
-func NewUTXOTransaction(from, to string, amount int, utxoSet *UTXOSet) *Transaction {
+func NewUTXOTransaction(wallet *Wallet, to string, amount int, utxoSet *UTXOSet) *Transaction {
 	var inputs []TXInput
 	var outputs []TXOutput
-
-	wallets, err := NewWallets()
-	if err != nil {
-		log.Panic(err)
-	}
-	wallet := wallets.GetWallet(from)
 
 	pubKeyHash := HashPubKey(wallet.PublicKey)
 
@@ -237,6 +239,7 @@ func NewUTXOTransaction(from, to string, amount int, utxoSet *UTXOSet) *Transact
 		}
 	}
 
+	from := string(wallet.GetAddress())
 	outputs = append(outputs, *NewTXOutput(amount, to))
 	if accumulated > amount {
 		outputs = append(outputs, *NewTXOutput(accumulated-amount, from))
@@ -247,4 +250,15 @@ func NewUTXOTransaction(from, to string, amount int, utxoSet *UTXOSet) *Transact
 	utxoSet.Blockchain.SignTransaction(&tx, wallet.PrivateKey)
 
 	return &tx
+}
+
+// DeserializeTransaction deserializes a transaction
+func DeserializeTransaction(data []byte) Transaction {
+	var tx Transaction
+
+	decoder := gob.NewDecoder(bytes.NewReader(data))
+	err := decoder.Decode(&tx)
+	logPanicErr(err)
+
+	return tx
 }

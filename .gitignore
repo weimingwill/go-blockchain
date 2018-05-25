@@ -1,3 +1,4 @@
 /vendor
-blockchain.db
-wallet.dat
+blockchain*.db
+wallet*.dat
+go-blockchain
